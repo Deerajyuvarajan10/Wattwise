@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+scikit-learn
+pandas
+numpy
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+pydantic
+python-multipart
+firebase-admin

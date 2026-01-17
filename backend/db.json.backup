@@ -1,0 +1,73 @@
+{
+    "appliances": [
+        {
+            "id": "3102d2d1-0468-4a74-a7e3-5a790b7ea57e",
+            "name": "Mixer",
+            "power_rating_watts": 550.0,
+            "usage_duration_hours_per_day": 1.0
+        },
+        {
+            "id": "759fe1d6-0dd1-4560-9c23-2afd9a62a045",
+            "name": "Light room",
+            "power_rating_watts": 8.0,
+            "usage_duration_hours_per_day": 5.0
+        },
+        {
+            "id": "57785f79-01dc-4673-81d4-3f0804c2378a",
+            "name": "Light kitchen ",
+            "power_rating_watts": 8.0,
+            "usage_duration_hours_per_day": 8.0
+        },
+        {
+            "id": "5c609d62-a413-4f18-91b0-1c3987660fdf",
+            "name": "Light hall",
+            "power_rating_watts": 8.0,
+            "usage_duration_hours_per_day": 6.0
+        }
+    ],
+    "readings": [
+        {
+            "date": "2026-01-17",
+            "time_of_day": "morning",
+            "reading_kwh": 11023.5
+        },
+        {
+            "date": "2026-01-17",
+            "time_of_day": "night",
+            "reading_kwh": 11123.5
+        },
+        {
+            "date": "2026-01-17",
+            "time_of_day": "morning",
+            "reading_kwh": 11025.6
+        },
+        {
+            "date": "2026-01-17",
+            "time_of_day": "night",
+            "reading_kwh": 11078.4
+        }
+    ],
+    "daily_usage": [
+        {
+            "date": "2026-01-17",
+            "consumption_kwh": 100.0,
+            "cost": 15.0,
+            "is_anomaly": true,
+            "readings_count": 2
+        },
+        {
+            "date": "2026-01-17",
+            "consumption_kwh": 100.0,
+            "cost": 800.0,
+            "is_anomaly": true,
+            "readings_count": 2
+        },
+        {
+            "date": "2026-01-17",
+            "consumption_kwh": 100.0,
+            "cost": 800.0,
+            "is_anomaly": true,
+            "readings_count": 2
+        }
+    ]
+}
