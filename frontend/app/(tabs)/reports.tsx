@@ -91,7 +91,7 @@ export default function ReportsScreen() {
         );
     }
 
-    const hasData = monthlyReport?.stats?.days_recorded > 0;
+    const hasData = (monthlyReport?.stats?.days_recorded ?? 0) > 0;
 
     return (
         <ScreenWrapper>

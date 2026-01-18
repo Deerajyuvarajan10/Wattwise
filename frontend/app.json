@@ -49,8 +49,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "6581b244-7a20-493b-aeae-a1367fec1cd8"
       }
-    }
+    },
+    "owner": "deerajyuvarajan"
   }
 }

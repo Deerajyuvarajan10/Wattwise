@@ -1,0 +1,20 @@
+﻿Invalid UUID appId
+Request ID: 1cb534a9-8233-490d-bb1d-c5adf333892a
+node.exe :     Error: 
+GraphQL request failed.
+At line:1 char:1
++ & "C:\Program 
+Files\nodejs/node.exe" 
+"C:\Program 
+Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
+    + CategoryInfo          
+    : NotSpecified: (    E  
+  rror: GraphQL request f   
+ ailed.:String) [], Remo    
+teException
+    + FullyQualifiedErrorId 
+    : NativeCommandError
+ 
