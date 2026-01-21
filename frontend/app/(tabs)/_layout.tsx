@@ -1,13 +1,11 @@
 import { Tabs } from 'expo-router';
 import { View, StyleSheet } from 'react-native';
 import { Colors } from '../../constants/Theme';
-import {
-    LayoutDashboard,
-    Zap,
-    Bell,
-    BarChart3,
-    Settings
-} from 'lucide-react-native';
+import LayoutDashboard from 'lucide-react-native/dist/esm/icons/layout-dashboard';
+import Zap from 'lucide-react-native/dist/esm/icons/zap';
+import Bell from 'lucide-react-native/dist/esm/icons/bell';
+import BarChart3 from 'lucide-react-native/dist/esm/icons/chart-bar';
+import Settings from 'lucide-react-native/dist/esm/icons/settings';
 
 export default function TabLayout() {
     return (

@@ -102,6 +102,19 @@ class Database:
                 )
             """)
             
+            # Billing cycles table for TNEB billing period tracking
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS billing_cycles (
+                    user_id TEXT PRIMARY KEY,
+                    last_bill_date TEXT NOT NULL,
+                    last_bill_reading REAL NOT NULL,
+                    last_bill_amount REAL,
+                    billing_period_months INTEGER DEFAULT 2,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """)
+            
             # Create indexes for performance
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_appliances_user ON appliances(user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_readings_user ON readings(user_id)")
@@ -247,6 +260,29 @@ class Database:
                 reading.get("time_of_day"),
                 reading.get("reading_kwh")
             ))
+    
+    def get_reading_by_date_time(self, user_id: str, date: str, time_of_day: str) -> Optional[Dict]:
+        """Get a specific reading by date and time of day."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT date, time_of_day, reading_kwh
+                FROM readings 
+                WHERE user_id = ? AND date = ? AND time_of_day = ?
+            """, (user_id, date, time_of_day))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def update_reading(self, user_id: str, date: str, time_of_day: str, new_reading_kwh: float):
+        """Update an existing reading."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE readings 
+                SET reading_kwh = ?
+                WHERE user_id = ? AND date = ? AND time_of_day = ?
+            """, (new_reading_kwh, user_id, date, time_of_day))
+            return cursor.rowcount > 0
 
     # ==================== DAILY USAGE ====================
     
@@ -504,6 +540,61 @@ class Database:
     def get_electricity_rate(self, user_id: str) -> float:
         settings = self.get_user_settings(user_id)
         return settings.get("electricity_rate", 8.0)
+    
+    # ==================== BILLING CYCLES ====================
+    
+    def save_billing_cycle(self, user_id: str, cycle_data: Dict):
+        """Save or update billing cycle information"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO billing_cycles 
+                (user_id, last_bill_date, last_bill_reading, last_bill_amount, billing_period_months)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                user_id,
+                cycle_data.get("last_bill_date"),
+                cycle_data.get("last_bill_reading"),
+                cycle_data.get("last_bill_amount"),
+                cycle_data.get("billing_period_months", 2)
+            ))
+    
+    def get_billing_cycle(self, user_id: str) -> Optional[Dict]:
+        """Get billing cycle information for user"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM billing_cycles WHERE user_id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def get_current_cycle_consumption(self, user_id: str) -> Optional[Dict]:
+        """Calculate consumption since last bill"""
+        cycle = self.get_billing_cycle(user_id)
+        if not cycle:
+            return None
+        
+        # Get latest reading
+        readings = self.get_readings(user_id)
+        if not readings:
+            return None
+        
+        # Get the most recent reading value
+        latest_reading = max(
+            [r["reading_kwh"] for r in readings],
+            default=cycle["last_bill_reading"]
+        )
+        
+        cycle_consumption = max(0, latest_reading - cycle["last_bill_reading"])
+        
+        return {
+            "last_bill_date": cycle["last_bill_date"],
+            "last_bill_reading": cycle["last_bill_reading"],
+            "current_reading": latest_reading,
+            "cycle_consumption": round(cycle_consumption, 2),
+            "billing_period_months": cycle.get("billing_period_months", 2)
+        }
 
 
 # Global instance

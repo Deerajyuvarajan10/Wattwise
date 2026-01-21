@@ -29,20 +29,35 @@ export const BarChart: React.FC<BarChartProps> = ({
     barColor = Colors.primary,
     highlightMax = true,
 }) => {
-    const animations = useRef(data.map(() => new Animated.Value(0))).current;
+    // Create animations array that updates when data length changes
+    const animations = useRef<Animated.Value[]>([]).current;
+
+    // Update animations array when data length changes
+    useEffect(() => {
+        // Ensure we have the right number of animations
+        while (animations.length < data.length) {
+            animations.push(new Animated.Value(0));
+        }
+        while (animations.length > data.length) {
+            animations.pop();
+        }
+    }, [data.length]);
+
     const maxValue = Math.max(...data.map(d => d.value), 1);
     const maxIndex = data.findIndex(d => d.value === maxValue);
 
     useEffect(() => {
-        const animationSequence = animations.map((anim, index) =>
-            Animated.timing(anim, {
-                toValue: 1,
-                duration: 500,
-                delay: index * 50,
-                useNativeDriver: false,
-            })
-        );
-        Animated.stagger(50, animationSequence).start();
+        if (animations.length === data.length) {
+            const animationSequence = animations.map((anim, index) =>
+                Animated.timing(anim, {
+                    toValue: 1,
+                    duration: 500,
+                    delay: index * 50,
+                    useNativeDriver: false,
+                })
+            );
+            Animated.stagger(50, animationSequence).start();
+        }
     }, [data]);
 
     const barWidth = (SCREEN_WIDTH - Spacing.md * 4) / data.length - 8;
@@ -51,6 +66,11 @@ export const BarChart: React.FC<BarChartProps> = ({
         <View style={[styles.chartContainer, { height }]}>
             <View style={styles.barsContainer}>
                 {data.map((item, index) => {
+                    // Safety check: ensure animation exists before using it
+                    if (!animations[index]) {
+                        return null;
+                    }
+
                     const barHeight = animations[index].interpolate({
                         inputRange: [0, 1],
                         outputRange: [0, (item.value / maxValue) * (height - 40)],

@@ -1,20 +1,37 @@
-
 import { View, Text, StyleSheet, TextInput, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ScreenWrapper } from '../components/ScreenWrapper';
 import { GlassCard } from '../components/GlassCard';
 import { NeonButton } from '../components/NeonButton';
 import { Colors, Spacing, Typography } from '../constants/Theme';
-import { Sun, Moon, Calendar } from 'lucide-react-native';
+import { Sun, Moon, Calendar, CheckCircle } from 'lucide-react-native';
 import { useStore } from '../store/useStore';
 
 export default function AddReadingScreen() {
     const router = useRouter();
-    const { addReading } = useStore();
+    const { addReading, readings } = useStore();
     const [morning, setMorning] = useState('');
     const [night, setNight] = useState('');
     const [loading, setLoading] = useState(false);
+    const [existingMorning, setExistingMorning] = useState<number | null>(null);
+    const [existingNight, setExistingNight] = useState<number | null>(null);
+
+    useEffect(() => {
+        // Check if there are already readings for today
+        const dateStr = new Date().toISOString().split('T')[0];
+        const todayReadings = readings.filter(r => r.date === dateStr);
+
+        const morningReading = todayReadings.find(r => r.time_of_day === 'morning');
+        const nightReading = todayReadings.find(r => r.time_of_day === 'night');
+
+        if (morningReading) {
+            setExistingMorning(morningReading.reading_kwh);
+        }
+        if (nightReading) {
+            setExistingNight(nightReading.reading_kwh);
+        }
+    }, [readings]);
 
     const handleSubmit = async () => {
         if (!morning && !night) {
@@ -26,7 +43,7 @@ export default function AddReadingScreen() {
         const dateStr = new Date().toISOString().split('T')[0];
 
         try {
-            if (morning) {
+            if (morning && !existingMorning) {
                 await addReading({
                     date: dateStr,
                     time_of_day: 'morning',
@@ -34,7 +51,7 @@ export default function AddReadingScreen() {
                 });
             }
 
-            if (night) {
+            if (night && !existingNight) {
                 await addReading({
                     date: dateStr,
                     time_of_day: 'night',
@@ -67,15 +84,22 @@ export default function AddReadingScreen() {
                             <View style={styles.labelRow}>
                                 <Sun size={20} color={Colors.warning} />
                                 <Text style={styles.label}>Morning Reading (kWh)</Text>
+                                {existingMorning && <CheckCircle size={18} color={Colors.success} />}
                             </View>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="e.g. 1540.5"
-                                placeholderTextColor={Colors.textMuted}
-                                keyboardType="numeric"
-                                value={morning}
-                                onChangeText={setMorning}
-                            />
+                            {existingMorning ? (
+                                <View style={styles.savedReading}>
+                                    <Text style={styles.savedText}>✓ Saved: {existingMorning} kWh</Text>
+                                </View>
+                            ) : (
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="e.g. 1540.5"
+                                    placeholderTextColor={Colors.textMuted}
+                                    keyboardType="numeric"
+                                    value={morning}
+                                    onChangeText={setMorning}
+                                />
+                            )}
                         </View>
 
                         <View style={styles.divider} />
@@ -84,15 +108,29 @@ export default function AddReadingScreen() {
                             <View style={styles.labelRow}>
                                 <Moon size={20} color={Colors.primary} />
                                 <Text style={styles.label}>Night Reading (kWh)</Text>
+                                {existingNight && <CheckCircle size={18} color={Colors.success} />}
                             </View>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="e.g. 1552.8"
-                                placeholderTextColor={Colors.textMuted}
-                                keyboardType="numeric"
-                                value={night}
-                                onChangeText={setNight}
-                            />
+                            {existingNight ? (
+                                <View style={styles.savedReading}>
+                                    <Text style={styles.savedText}>✓ Saved: {existingNight} kWh</Text>
+                                </View>
+                            ) : (
+                                <>
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="e.g. 1552.8"
+                                        placeholderTextColor={Colors.textMuted}
+                                        keyboardType="numeric"
+                                        value={night}
+                                        onChangeText={setNight}
+                                    />
+                                    {existingMorning && (
+                                        <Text style={styles.hint}>
+                                            💡 Morning reading: {existingMorning} kWh
+                                        </Text>
+                                    )}
+                                </>
+                            )}
                         </View>
                     </GlassCard>
 
@@ -178,5 +216,23 @@ const styles = StyleSheet.create({
     actions: {
         flexDirection: 'row',
         gap: Spacing.md,
+    },
+    savedReading: {
+        backgroundColor: Colors.success + '15',
+        borderWidth: 1,
+        borderColor: Colors.success + '40',
+        borderRadius: 12,
+        padding: 16,
+    },
+    savedText: {
+        color: Colors.success,
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    hint: {
+        color: Colors.warning,
+        fontSize: 13,
+        marginTop: 8,
+        fontStyle: 'italic',
     },
 });

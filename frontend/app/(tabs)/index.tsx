@@ -29,8 +29,10 @@ export default function Dashboard() {
         fetchDailyUsage,
         fetchDashboardSummary,
         fetchTips,
+        fetchBillingCycle,
         dashboardSummary,
         tips,
+        billingCycle,
         user,
         isLoading
     } = useStore();
@@ -46,6 +48,7 @@ export default function Dashboard() {
             fetchDailyUsage(),
             fetchDashboardSummary(),
             fetchTips(),
+            fetchBillingCycle(),
         ]);
     };
 
@@ -175,6 +178,59 @@ export default function Dashboard() {
                     style={styles.addButton}
                     variant="primary"
                 />
+
+                <NeonButton
+                    title="View Readings History"
+                    onPress={() => router.push('/readings-history')}
+                    style={styles.secondaryButton}
+                    variant="secondary"
+                />
+
+                {/* Billing Cycle Progress */}
+                {billingCycle?.has_cycle ? (
+                    <GlassCard style={styles.cycleCard}>
+                        <View style={styles.cycleHeader}>
+                            <Text style={styles.cycleTitle}>Billing Cycle Progress</Text>
+                            <TouchableOpacity onPress={() => router.push('/import-bill')}>
+                                <Text style={styles.cycleUpdate}>Update</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.cycleProgress}>
+                            <View style={styles.cycleStats}>
+                                <Text style={styles.cycleValue}>{billingCycle.cycle_consumption} kWh</Text>
+                                <Text style={styles.cycleLabel}>Used this cycle</Text>
+                            </View>
+                            <View style={styles.cycleStats}>
+                                <Text style={[styles.cycleValue, { color: Colors.warning }]}>
+                                    {billingCycle.current_slab}
+                                </Text>
+                                <Text style={styles.cycleLabel}>Current Slab</Text>
+                            </View>
+                            <View style={styles.cycleStats}>
+                                <Text style={styles.cycleValue}>₹{billingCycle.current_rate}/unit</Text>
+                                <Text style={styles.cycleLabel}>Rate</Text>
+                            </View>
+                        </View>
+
+                        <Text style={styles.cycleDays}>
+                            Day {billingCycle.days_in_cycle} of ~60 • Ends ~{new Date(billingCycle.estimated_cycle_end || '').toLocaleDateString()}
+                        </Text>
+                    </GlassCard>
+                ) : (
+                    <GlassCard style={styles.cycleCard}>
+                        <Text style={styles.cycleTitle}>Import Last Bill</Text>
+                        <Text style={styles.cycleSubtitle}>
+                            Get accurate cost calculations by importing your last TNEB bill
+                        </Text>
+                        <NeonButton
+                            title="Import Bill"
+                            onPress={() => router.push('/import-bill')}
+                            variant="secondary"
+                            style={{ marginTop: Spacing.md }}
+                        />
+                    </GlassCard>
+                )}
 
                 {/* Usage Chart */}
                 {chartData.length > 0 && (
@@ -362,6 +418,9 @@ const styles = StyleSheet.create({
         marginHorizontal: Spacing.sm,
     },
     addButton: {
+        marginBottom: Spacing.md,
+    },
+    secondaryButton: {
         marginBottom: Spacing.lg,
     },
     chartCard: {
@@ -441,6 +500,54 @@ const styles = StyleSheet.create({
         color: Colors.danger,
         fontSize: 12,
         fontWeight: '600',
+    },
+    cycleCard: {
+        padding: Spacing.md,
+        marginBottom: Spacing.lg,
+    },
+    cycleHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: Spacing.md,
+    },
+    cycleTitle: {
+        ...Typography.h3,
+        fontSize: 16,
+    },
+    cycleUpdate: {
+        color: Colors.primary,
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    cycleProgress: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        marginBottom: Spacing.sm,
+    },
+    cycleStats: {
+        alignItems: 'center',
+    },
+    cycleValue: {
+        color: Colors.textPrimary,
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    cycleLabel: {
+        color: Colors.textMuted,
+        fontSize: 11,
+        marginTop: 4,
+    },
+    cycleDays: {
+        color: Colors.textSecondary,
+        fontSize: 12,
+        textAlign: 'center',
+        marginTop: Spacing.sm,
+    },
+    cycleSubtitle: {
+        color: Colors.textSecondary,
+        fontSize: 14,
+        marginTop: Spacing.xs,
     },
     bottomPadding: {
         height: 20,

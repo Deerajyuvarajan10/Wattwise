@@ -7,8 +7,13 @@ import { NeonButton } from '../../components/NeonButton';
 import { EmptyState } from '../../components/EmptyState';
 import { ListItemSkeleton } from '../../components/SkeletonLoader';
 import { Colors, Spacing, Typography } from '../../constants/Theme';
-import { Trash2, Plus, Zap, Search, SortDesc } from 'lucide-react-native';
+import Trash2 from 'lucide-react-native/dist/esm/icons/trash-2';
+import Plus from 'lucide-react-native/dist/esm/icons/plus';
+import Zap from 'lucide-react-native/dist/esm/icons/zap';
+import Search from 'lucide-react-native/dist/esm/icons/search';
+import SortDesc from 'lucide-react-native/dist/esm/icons/arrow-down-wide-narrow';
 import { BlurView } from 'expo-blur';
+import { calculateDailyCost } from '../../utils/slabRates';
 
 export default function AppliancesScreen() {
     const { appliances, fetchAppliances, addAppliance, deleteAppliance, isLoading } = useStore();
@@ -109,7 +114,7 @@ export default function AppliancesScreen() {
                                     <View style={styles.summaryDivider} />
                                     <View style={styles.summaryItem}>
                                         <Text style={[styles.summaryValue, { color: Colors.success }]}>
-                                            ₹{(totalDailyKwh * 8).toFixed(0)}
+                                            ₹{calculateDailyCost(totalDailyKwh).toFixed(0)}
                                         </Text>
                                         <Text style={styles.summaryLabel}>Est. Cost/Day</Text>
                                     </View>

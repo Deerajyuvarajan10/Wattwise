@@ -3,10 +3,12 @@ import axios from 'axios';
 import { offlineStorage } from '../services/offlineStorage';
 
 // Replace with your backend URL
+// To find your PC's IP: Run 'ipconfig' in PowerShell and look for IPv4 Address under WiFi adapter
+// Example: http://192.168.1.100:8000
 const API_URL = 'http://192.168.29.191:8000';
 
 // Set to false for production with Google Sign-In
-const DEMO_MODE = false;
+const DEMO_MODE = true;
 
 interface Appliance {
     id: string;
@@ -78,6 +80,19 @@ interface UserSettings {
     notifications_enabled: boolean;
     weekly_digest_enabled: boolean;
     theme: string;
+    tips?: string;
+}
+
+interface BillingCycle {
+    has_cycle: boolean;
+    last_bill_date?: string;
+    last_bill_reading?: number;
+    current_reading?: number;
+    cycle_consumption?: number;
+    current_slab?: string;
+    current_rate?: number;
+    days_in_cycle?: number;
+    estimated_cycle_end?: string;
 }
 
 interface Tips {
@@ -101,6 +116,7 @@ export interface AppState {
     dashboardSummary: DashboardSummary | null;
     settings: UserSettings | null;
     tips: Tips | null;
+    billingCycle: BillingCycle | null;
     isLoading: boolean;
     isOffline: boolean;
     error: string | null;
@@ -115,8 +131,9 @@ export interface AppState {
     deleteAppliance: (id: string) => Promise<void>;
 
     // Readings
-    fetchReadings: () => Promise<void>;
+    fetchReadings: () => Promise<Reading[]>;
     addReading: (reading: Reading) => Promise<void>;
+    updateReading: (date: string, timeOfDay: string, newReading: number) => Promise<void>;
     fetchDailyUsage: () => Promise<void>;
 
     // Reports & Analytics
@@ -128,26 +145,37 @@ export interface AppState {
     // Settings
     fetchSettings: () => Promise<void>;
     updateSettings: (settings: Partial<UserSettings>) => Promise<void>;
+
+    // Billing Cycle
+    saveBillingCycle: (data: { last_bill_date: string; last_bill_reading: number; last_bill_amount?: number }) => Promise<void>;
+    fetchBillingCycle: () => Promise<void>;
 }
 
-import { auth } from '../firebaseConfig';
-import { signOut } from 'firebase/auth';
-
+// Demo mode - no Firebase needed
 const getAuthHeaders = async () => {
-    if (DEMO_MODE) {
-        return { Authorization: 'Bearer demo-token-for-testing' };
-    }
+    // Always use demo token
+    return { Authorization: 'Bearer demo-token-for-testing' };
+};
 
+// Configure axios defaults
+axios.defaults.timeout = 10000; // 10 second timeout
+
+// Helper to check backend connectivity
+const checkBackendConnection = async () => {
     try {
-        const user = auth.currentUser;
-        if (user) {
-            const token = await user.getIdToken();
-            return { Authorization: `Bearer ${token}` };
+        console.log('Checking backend connection to:', API_URL);
+        const response = await axios.get(`${API_URL}/`, { timeout: 5000 });
+        console.log('✓ Backend is reachable:', response.data);
+        return true;
+    } catch (error: any) {
+        console.log('✗ Backend connection failed:', error.message);
+        if (error.code === 'ECONNREFUSED') {
+            console.log('  → Backend server is not running or not accessible');
+        } else if (error.code === 'ETIMEDOUT') {
+            console.log('  → Connection timeout - check firewall or network');
         }
-    } catch (error) {
-        console.log('Auth error:', error);
+        return false;
     }
-    return {};
 };
 
 export const useStore = create<AppState>((set, get) => ({
@@ -168,7 +196,6 @@ export const useStore = create<AppState>((set, get) => ({
 
     logout: async () => {
         try {
-            await signOut(auth);
             set({
                 user: null,
                 appliances: [],
@@ -191,6 +218,9 @@ export const useStore = create<AppState>((set, get) => ({
     fetchAppliances: async () => {
         set({ isLoading: true });
         try {
+            // Check backend connectivity first
+            await checkBackendConnection();
+
             const headers = await getAuthHeaders();
             const res = await axios.get(`${API_URL}/appliances`, { headers });
             const appliances = res.data;
@@ -214,12 +244,22 @@ export const useStore = create<AppState>((set, get) => ({
         set({ isLoading: true });
         try {
             const headers = await getAuthHeaders();
+            console.log('=== ADD APPLIANCE DEBUG ===');
+            console.log('API_URL:', API_URL);
+            console.log('Full URL:', `${API_URL}/appliances`);
+            console.log('Headers:', JSON.stringify(headers));
+            console.log('Body:', JSON.stringify(app));
             const res = await axios.post(`${API_URL}/appliances`, app, { headers });
+            console.log('Response:', res.status, JSON.stringify(res.data));
             set((state) => ({
                 appliances: [...state.appliances, res.data],
                 isLoading: false
             }));
         } catch (err: any) {
+            console.log('=== ADD APPLIANCE ERROR ===');
+            console.log('Error message:', err.message);
+            console.log('Error response:', err.response?.status, JSON.stringify(err.response?.data));
+            console.log('Error config URL:', err.config?.url);
             set({ error: err.message, isLoading: false });
             throw err;
         }
@@ -246,9 +286,11 @@ export const useStore = create<AppState>((set, get) => ({
             const readings = res.data;
             set({ readings, isOffline: false });
             await offlineStorage.cacheReadings(readings);
+            return readings;
         } catch (err: any) {
             const cached = await offlineStorage.getCachedReadings();
             set({ readings: cached, isOffline: true, error: err.message });
+            return cached;
         }
     },
 
@@ -270,16 +312,59 @@ export const useStore = create<AppState>((set, get) => ({
 
         try {
             const headers = await getAuthHeaders();
-            await axios.post(`${API_URL}/readings`, reading, { headers });
+            console.log('=== ADD READING DEBUG ===');
+            console.log('API_URL:', API_URL);
+            console.log('Full URL:', `${API_URL}/readings`);
+            console.log('Headers:', JSON.stringify(headers));
+            console.log('Reading data:', JSON.stringify(reading));
+
+            const response = await axios.post(`${API_URL}/readings`, reading, { headers });
+
+            console.log('Response status:', response.status);
+            console.log('Response data:', JSON.stringify(response.data));
+
             await get().fetchDailyUsage();
             set((state) => ({
                 readings: [...state.readings, reading],
                 isLoading: false
             }));
+
+            console.log('✓ Reading added successfully');
         } catch (err: any) {
+            console.log('=== ADD READING ERROR ===');
+            console.log('Error message:', err.message);
+            console.log('Error response:', err.response?.status, JSON.stringify(err.response?.data));
+            console.log('Error config URL:', err.config?.url);
+
             // Fallback to offline save
             await offlineStorage.addLocalReading(reading);
             set({ error: err.message, isLoading: false, isOffline: true });
+            throw err;
+        }
+    },
+
+    updateReading: async (date, timeOfDay, newReading) => {
+        set({ isLoading: true });
+        try {
+            const headers = await getAuthHeaders();
+            console.log(`Updating reading: ${date} ${timeOfDay} to ${newReading} kWh`);
+
+            await axios.put(
+                `${API_URL}/readings/${date}/${timeOfDay}`,
+                { reading_kwh: newReading },
+                { headers }
+            );
+
+            // Refresh readings and daily usage
+            await get().fetchReadings();
+            await get().fetchDailyUsage();
+
+            set({ isLoading: false });
+            console.log('✓ Reading updated successfully');
+        } catch (err: any) {
+            console.log('Update reading error:', err.message);
+            set({ error: err.message, isLoading: false });
+            throw err;
         }
     },
 
@@ -327,6 +412,37 @@ export const useStore = create<AppState>((set, get) => ({
             set({ dashboardSummary: res.data, isLoading: false });
         } catch (err: any) {
             set({ error: err.message, isLoading: false });
+        }
+    },
+
+    // Billing Cycle
+    billingCycle: null,
+
+    saveBillingCycle: async (data) => {
+        set({ isLoading: true });
+        try {
+            const headers = await getAuthHeaders();
+            await axios.post(`${API_URL}/billing-cycle`, data, { headers });
+
+            // Fetch updated cycle info
+            await get().fetchBillingCycle();
+
+            set({ isLoading: false });
+        } catch (err: any) {
+            console.log('Save billing cycle error:', err.message);
+            set({ error: err.message, isLoading: false });
+            throw err;
+        }
+    },
+
+    fetchBillingCycle: async () => {
+        try {
+            const headers = await getAuthHeaders();
+            const res = await axios.get(`${API_URL}/billing-cycle`, { headers });
+            set({ billingCycle: res.data, isOffline: false });
+        } catch (err: any) {
+            console.log('Fetch billing cycle error:', err.message);
+            set({ billingCycle: null, error: err.message });
         }
     },
 

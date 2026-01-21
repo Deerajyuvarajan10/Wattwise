@@ -41,8 +41,7 @@
           "icon": "./assets/notification-icon.png",
           "color": "#00f3ff"
         }
-      ],
-      "@react-native-google-signin/google-signin"
+      ]
     ],
     "extra": {
       "router": {

@@ -50,6 +50,7 @@ declare module 'lucide-react-native' {
     export const LineChart: Icon;
     export const List: Icon;
     export const Loader: Icon;
+    export const Lock: Icon;
     export const Mail: Icon;
     export const Menu: Icon;
     export const Minus: Icon;
@@ -83,4 +84,19 @@ declare module 'lucide-react-native' {
     // Catch-all for any other icons
     const icons: { [key: string]: Icon };
     export default icons;
+}
+
+// Direct ESM icon imports - each icon module exports the icon as default
+declare module 'lucide-react-native/dist/esm/icons/*' {
+    import { FC } from 'react';
+    import { SvgProps } from 'react-native-svg';
+
+    interface IconProps extends SvgProps {
+        size?: number | string;
+        color?: string;
+        strokeWidth?: number | string;
+    }
+
+    const Icon: FC<IconProps>;
+    export default Icon;
 }

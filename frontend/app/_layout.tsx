@@ -21,9 +21,10 @@ export default function RootLayout() {
                 }}
             >
                 <Stack.Screen name="index" options={{ title: 'Dashboard', headerShown: false }} />
-                <Stack.Screen name="login" options={{ title: 'Login', headerShown: false }} />
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="add-reading" options={{ title: 'Add Reading', presentation: 'modal', headerShown: false }} />
+                <Stack.Screen name="readings-history" options={{ title: 'Readings History', headerShown: true }} />
+                <Stack.Screen name="import-bill" options={{ title: 'Import Last Bill', headerShown: true }} />
             </Stack>
         </>
     );

@@ -10,7 +10,7 @@ import csv
 from models import Appliance, MeterReading, DailyUsage
 from database_sqlite import db
 from ml_engine import ml_engine
-from auth import verify_token
+from auth import verify_token, DEMO_MODE
 from recommendations import recommendations_engine
 from email_service import email_service
 from slab_rates import calculate_daily_cost, calculate_monthly_bill, get_slab_info, get_all_slabs
@@ -56,11 +56,39 @@ app.add_middleware(
 @app.on_event("startup")
 def startup_event():
     # Database initializes on import
-    pass
+    print("=" * 50)
+    print("🚀 WattWise Backend Starting...")
+    print(f"📡 Server will be available at: http://0.0.0.0:8000")
+    print(f"🔧 Demo Mode: {DEMO_MODE}")
+    print("=" * 50)
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(f"\n📥 {request.method} {request.url.path}")
+    print(f"   Client: {request.client.host if request.client else 'unknown'}")
+    auth_header = request.headers.get("authorization", "None")
+    print(f"   Auth: {auth_header[:50]}..." if len(auth_header) > 50 else f"   Auth: {auth_header}")
+    
+    response = await call_next(request)
+    
+    print(f"📤 Response: {response.status_code}")
+    return response
 
 @app.get("/")
 def read_root():
-    return {"message": "WattWise Backend is running", "version": "2.0.0"}
+    return {
+        "message": "WattWise Backend is running", 
+        "version": "2.0.0",
+        "demo_mode": DEMO_MODE,
+        "status": "✓ Server is healthy",
+        "endpoints": {
+            "appliances": "/appliances",
+            "readings": "/readings",
+            "daily_usage": "/daily-usage",
+            "dashboard": "/dashboard/summary"
+        }
+    }
 
 # ==================== APPLIANCES ====================
 
@@ -70,13 +98,19 @@ def get_appliances(user: dict = Depends(get_current_user)):
 
 @app.post("/appliances", response_model=Appliance)
 def add_appliance(appliance: Appliance, user: dict = Depends(get_current_user)):
+    print(f"\n➕ Adding appliance for user {user['userid']}")
+    print(f"   Name: {appliance.name}, Power: {appliance.power_rating_watts}W, Hours: {appliance.usage_duration_hours_per_day}h/day")
+    
     if not appliance.id:
         appliance.id = str(uuid.uuid4())
     db.add_appliance(appliance.dict(), user["userid"])
+    
+    print(f"   ✓ Appliance added with ID: {appliance.id}")
     return appliance
 
 @app.delete("/appliances/{appliance_id}")
 def delete_appliance(appliance_id: str, user: dict = Depends(get_current_user)):
+    print(f"\n🗑️  Deleting appliance {appliance_id} for user {user['userid']}")
     db.delete_appliance(appliance_id, user["userid"])
     return {"status": "deleted"}
 
@@ -96,6 +130,9 @@ def add_reading(reading: MeterReading, user: dict = Depends(get_current_user)):
     - If so, calculate daily usage and update ML/Stats.
     """
     user_id = user["userid"]
+    
+    print(f"\n💾 Adding reading for user {user_id}")
+    print(f"   Date: {reading.date}, Time: {reading.time_of_day}, Reading: {reading.reading_kwh} kWh")
     
     # Get user's electricity rate
     rate = db.get_electricity_rate(user_id)
@@ -117,6 +154,8 @@ def add_reading(reading: MeterReading, user: dict = Depends(get_current_user)):
              consumption = 0
         else:
             consumption = n_val - m_val
+        
+        print(f"   ✓ Both readings available! Consumption: {consumption} kWh")
         
         # Get estimated monthly usage for accurate slab calculation
         all_daily = db.get_daily_usage(user_id, limit=30)
@@ -140,6 +179,8 @@ def add_reading(reading: MeterReading, user: dict = Depends(get_current_user)):
         
         db.save_daily_usage(daily_usage.dict(), user_id)
         
+        print(f"   💰 Daily cost: ₹{cost:.2f}, Anomaly: {is_anomaly}")
+        
         # Retrain ML model
         all_daily = db.get_daily_usage(user_id)
         if len(all_daily) > 5:
@@ -147,7 +188,113 @@ def add_reading(reading: MeterReading, user: dict = Depends(get_current_user)):
         
         return {"message": "Reading added. Daily usage calculated.", "daily_usage": daily_usage}
 
+    print(f"   ⏳ Waiting for {'night' if reading.time_of_day == 'morning' else 'morning'} reading")
     return {"message": "Reading added. Waiting for second reading to calculate daily usage."}
+
+class UpdateReadingRequest(BaseModel):
+    reading_kwh: float
+
+@app.put("/readings/{date}/{time_of_day}")
+def update_reading(
+    date: str,
+    time_of_day: str,
+    request: UpdateReadingRequest,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Update an existing meter reading.
+    After updating, recalculate daily usage if both readings exist.
+    """
+    user_id = user["userid"]
+    
+    # Validate time_of_day
+    if time_of_day not in ["morning", "night"]:
+        raise HTTPException(status_code=400, detail="time_of_day must be 'morning' or 'night'")
+    
+    # Validate reading value
+    if request.reading_kwh < 0:
+        raise HTTPException(status_code=400, detail="Reading must be a positive number")
+    
+    print(f"\n✏️  Updating reading for user {user_id}")
+    print(f"   Date: {date}, Time: {time_of_day}, New Reading: {request.reading_kwh} kWh")
+    
+    # Check if reading exists
+    existing = db.get_reading_by_date_time(user_id, date, time_of_day)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Reading not found for {date} {time_of_day}")
+    
+    # Update the reading
+    success = db.update_reading(user_id, date, time_of_day, request.reading_kwh)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update reading")
+    
+    print(f"   ✓ Reading updated from {existing['reading_kwh']} to {request.reading_kwh} kWh")
+    
+    # Recalculate daily usage
+    all_readings = db.get_readings(user_id)
+    day_readings = [r for r in all_readings if r["date"] == date]
+    
+    morning = next((r for r in day_readings if r["time_of_day"] == "morning"), None)
+    night = next((r for r in day_readings if r["time_of_day"] == "night"), None)
+    
+    if morning and night:
+        m_val = float(morning["reading_kwh"])
+        n_val = float(night["reading_kwh"])
+        
+        if n_val < m_val:
+            consumption = 0
+        else:
+            consumption = n_val - m_val
+        
+        print(f"   🔄 Recalculating daily usage: {consumption} kWh")
+        
+        # Get estimated monthly usage for accurate slab calculation
+        all_daily = db.get_daily_usage(user_id, limit=30)
+        if all_daily:
+            avg_daily = sum(d["consumption_kwh"] for d in all_daily) / len(all_daily)
+            estimated_monthly = avg_daily * 30
+        else:
+            estimated_monthly = consumption * 30
+        
+        # Calculate cost using Tamil Nadu slab rates
+        cost = calculate_daily_cost(consumption, estimated_monthly)
+        is_anomaly = ml_engine.is_anomaly(consumption)
+        
+        daily_usage = DailyUsage(
+            date=date,
+            consumption_kwh=round(consumption, 2),
+            cost=round(cost, 2),
+            is_anomaly=is_anomaly,
+            readings_count=2
+        )
+        
+        db.save_daily_usage(daily_usage.dict(), user_id)
+        
+        print(f"   💰 Updated daily cost: ₹{cost:.2f}, Anomaly: {is_anomaly}")
+        
+        # Retrain ML model
+        all_daily = db.get_daily_usage(user_id)
+        if len(all_daily) > 5:
+            ml_engine.train(all_daily)
+        
+        return {
+            "message": "Reading updated. Daily usage recalculated.",
+            "reading": {
+                "date": date,
+                "time_of_day": time_of_day,
+                "reading_kwh": request.reading_kwh
+            },
+            "daily_usage": daily_usage
+        }
+    
+    return {
+        "message": "Reading updated successfully.",
+        "reading": {
+            "date": date,
+            "time_of_day": time_of_day,
+            "reading_kwh": request.reading_kwh
+        }
+    }
 
 @app.get("/daily-usage", response_model=List[DailyUsage])
 def get_daily_usage(user: dict = Depends(get_current_user)):
@@ -429,4 +576,77 @@ def test_email(request: EmailRequest):
         "Test Email - Your email configuration is working!"
     )
     return {"sent": success}
+
+# ==================== BILLING CYCLE ====================
+
+class BillingCycleRequest(BaseModel):
+    last_bill_date: str
+    last_bill_reading: float
+    last_bill_amount: Optional[float] = None
+    billing_period_months: int = 2
+
+@app.post("/billing-cycle")
+def save_billing_cycle(request: BillingCycleRequest, user: dict = Depends(get_current_user)):
+    """Save billing cycle information from last TNEB bill"""
+    user_id = user["userid"]
+    
+    print(f"\n💰 Saving billing cycle for user {user_id}")
+    print(f"   Last bill date: {request.last_bill_date}")
+    print(f"   Last bill reading: {request.last_bill_reading} kWh")
+    
+    cycle_data = {
+        "last_bill_date": request.last_bill_date,
+        "last_bill_reading": request.last_bill_reading,
+        "last_bill_amount": request.last_bill_amount,
+        "billing_period_months": request.billing_period_months
+    }
+    
+    db.save_billing_cycle(user_id, cycle_data)
+    
+    return {"message": "Billing cycle saved successfully", "data": cycle_data}
+
+@app.get("/billing-cycle")
+def get_billing_cycle_status(user: dict = Depends(get_current_user)):
+    """Get current billing cycle status"""
+    user_id = user["userid"]
+    
+    cycle_info = db.get_current_cycle_consumption(user_id)
+    
+    if not cycle_info:
+        return {"has_cycle": False, "message": "No billing cycle configured"}
+    
+    # Calculate days in cycle and estimated end
+    from datetime import datetime, timedelta
+    try:
+        last_bill_date = datetime.fromisoformat(cycle_info["last_bill_date"])
+        today = datetime.now()
+        days_in_cycle = (today - last_bill_date).days
+        
+        # TNEB billing is typically 60 days
+        estimated_end = last_bill_date + timedelta(days=60)
+        
+        # Determine current slab based on consumption
+        consumption = cycle_info["cycle_consumption"]
+        slab_info = get_slab_info(consumption, is_bimonthly=True)
+        
+        return {
+            "has_cycle": True,
+            "last_bill_date": cycle_info["last_bill_date"],
+            "last_bill_reading": cycle_info["last_bill_reading"],
+            "current_reading": cycle_info["current_reading"],
+            "cycle_consumption": cycle_info["cycle_consumption"],
+            "current_slab": slab_info["current_slab"],
+            "current_rate": slab_info["current_rate"],
+            "days_in_cycle": days_in_cycle,
+            "estimated_cycle_end": estimated_end.strftime("%Y-%m-%d"),
+            "billing_period_months": cycle_info["billing_period_months"]
+        }
+    except Exception as e:
+        print(f"Error calculating cycle status: {e}")
+        return {
+            "has_cycle": True,
+            **cycle_info,
+            "days_in_cycle": 0,
+            "estimated_cycle_end": None
+        }
 

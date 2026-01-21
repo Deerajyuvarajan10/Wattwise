@@ -11,30 +11,31 @@ import {
     Switch,
     TouchableOpacity,
     TextInput,
-    Alert
+    Alert,
+    Platform
 } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import { Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useRouter } from 'expo-router';
 import { useStore } from '../../store/useStore';
 import { ScreenWrapper } from '../../components/ScreenWrapper';
 import { GlassCard } from '../../components/GlassCard';
 import { NeonButton } from '../../components/NeonButton';
 import { Colors, Spacing, Typography } from '../../constants/Theme';
-import {
-    Settings as SettingsIcon,
-    Zap,
-    Bell,
-    Moon,
-    Download,
-    LogOut,
-    User,
-    ChevronRight,
-    IndianRupee,
-    Mail,
-    Trash2,
-    Info
-} from 'lucide-react-native';
-import { auth } from '../../firebaseConfig';
-import { signOut } from 'firebase/auth';
+import SettingsIcon from 'lucide-react-native/dist/esm/icons/settings';
+import Zap from 'lucide-react-native/dist/esm/icons/zap';
+import Bell from 'lucide-react-native/dist/esm/icons/bell';
+import Moon from 'lucide-react-native/dist/esm/icons/moon';
+import Download from 'lucide-react-native/dist/esm/icons/download';
+import LogOut from 'lucide-react-native/dist/esm/icons/log-out';
+import User from 'lucide-react-native/dist/esm/icons/user';
+import ChevronRight from 'lucide-react-native/dist/esm/icons/chevron-right';
+import IndianRupee from 'lucide-react-native/dist/esm/icons/indian-rupee';
+import Mail from 'lucide-react-native/dist/esm/icons/mail';
+import Trash2 from 'lucide-react-native/dist/esm/icons/trash-2';
+import Info from 'lucide-react-native/dist/esm/icons/info';
+import { auth, signOut } from '../../firebaseConfig';
 
 export default function SettingsScreen() {
     const router = useRouter();
@@ -101,20 +102,49 @@ export default function SettingsScreen() {
         );
     };
 
-    const handleExportData = () => {
-        Alert.alert(
-            'Export Data',
-            'Your usage data will be exported as a CSV file.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Export',
-                    onPress: () => {
-                        Alert.alert('Export Started', 'Check the /export/csv endpoint on your backend server.');
-                    }
-                },
-            ]
-        );
+    const handleExportData = async () => {
+        try {
+            // In a real app, you'd get the token from your auth system
+            const headers = { Authorization: 'Bearer demo-token-for-testing' };
+            // Replace with your actual backend API URL
+            const API_URL = 'http://192.168.1.8:8000';
+
+            const response = await fetch(`${API_URL}/export/csv`, { headers });
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status} ${response.statusText}`);
+            }
+            const csvData = await response.text();
+
+            const fileName = `wattwise_usage_${new Date().toISOString().split('T')[0]}.csv`;
+
+            if (Platform.OS === 'web') {
+                // Web download
+                const blob = new Blob([csvData], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                a.click();
+                window.URL.revokeObjectURL(url); // Clean up
+                Alert.alert('Export Complete', 'Your usage data has been downloaded.');
+            } else {
+                // Mobile - Save to file and share
+                const fileUri = Paths.join(Paths.document.uri, fileName);
+                await FileSystem.writeAsStringAsync(fileUri, csvData, {
+                    encoding: 'utf8',
+                });
+
+                // Share the file
+                const canShare = await Sharing.isAvailableAsync();
+                if (canShare) {
+                    await Sharing.shareAsync(fileUri);
+                } else {
+                    Alert.alert('Export Complete', `File saved to: ${fileUri}`);
+                }
+            }
+        } catch (error: any) {
+            Alert.alert('Export Error', error.message);
+        }
     };
 
     return (
