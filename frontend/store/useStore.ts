@@ -92,6 +92,9 @@ interface BillingCycle {
     current_slab?: string;
     current_rate?: number;
     days_in_cycle?: number;
+    days_remaining?: number;
+    cycle_ending_soon?: boolean;
+    cycle_ended?: boolean;
     estimated_cycle_end?: string;
 }
 

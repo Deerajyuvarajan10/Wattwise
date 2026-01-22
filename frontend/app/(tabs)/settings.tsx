@@ -14,7 +14,7 @@ import {
     Alert,
     Platform
 } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useRouter } from 'expo-router';
@@ -35,7 +35,9 @@ import IndianRupee from 'lucide-react-native/dist/esm/icons/indian-rupee';
 import Mail from 'lucide-react-native/dist/esm/icons/mail';
 import Trash2 from 'lucide-react-native/dist/esm/icons/trash-2';
 import Info from 'lucide-react-native/dist/esm/icons/info';
+import Send from 'lucide-react-native/dist/esm/icons/send';
 import { auth, signOut } from '../../firebaseConfig';
+import { notificationService } from '../../services/notifications';
 
 export default function SettingsScreen() {
     const router = useRouter();
@@ -102,18 +104,33 @@ export default function SettingsScreen() {
         );
     };
 
+    const handleTestNotification = async () => {
+        try {
+            await notificationService.initialize();
+            await notificationService.sendImmediateNotification({
+                title: '⚡ High Usage Alert',
+                body: 'Your electricity consumption today (15.2 kWh) is 30% higher than your daily average!',
+                data: { type: 'demo_alert' }
+            });
+            Alert.alert('Notification Sent', 'Check your notification panel!');
+        } catch (error: any) {
+            Alert.alert('Error', 'Failed to send notification: ' + error.message);
+        }
+    };
+
     const handleExportData = async () => {
         try {
-            // In a real app, you'd get the token from your auth system
+            console.log('Starting export...');
             const headers = { Authorization: 'Bearer demo-token-for-testing' };
-            // Replace with your actual backend API URL
-            const API_URL = 'http://192.168.1.8:8000';
+            const API_URL = 'http://192.168.29.191:8000'; // Updated to match your backend
 
+            console.log('Fetching from:', `${API_URL}/export/csv`);
             const response = await fetch(`${API_URL}/export/csv`, { headers });
             if (!response.ok) {
                 throw new Error(`Server error: ${response.status} ${response.statusText}`);
             }
             const csvData = await response.text();
+            console.log('CSV data received, length:', csvData.length);
 
             const fileName = `wattwise_usage_${new Date().toISOString().split('T')[0]}.csv`;
 
@@ -125,17 +142,21 @@ export default function SettingsScreen() {
                 a.href = url;
                 a.download = fileName;
                 a.click();
-                window.URL.revokeObjectURL(url); // Clean up
+                window.URL.revokeObjectURL(url);
                 Alert.alert('Export Complete', 'Your usage data has been downloaded.');
             } else {
                 // Mobile - Save to file and share
+                console.log('Saving file to mobile...');
                 const fileUri = Paths.join(Paths.document.uri, fileName);
+                console.log('File URI:', fileUri);
                 await FileSystem.writeAsStringAsync(fileUri, csvData, {
                     encoding: 'utf8',
                 });
+                console.log('File written successfully');
 
                 // Share the file
                 const canShare = await Sharing.isAvailableAsync();
+                console.log('Can share:', canShare);
                 if (canShare) {
                     await Sharing.shareAsync(fileUri);
                 } else {
@@ -143,6 +164,7 @@ export default function SettingsScreen() {
                 }
             }
         } catch (error: any) {
+            console.error('Export error:', error);
             Alert.alert('Export Error', error.message);
         }
     };
@@ -167,30 +189,40 @@ export default function SettingsScreen() {
                     </View>
                 </GlassCard>
 
-                {/* Electricity Rate */}
-                <Text style={styles.sectionTitle}>Electricity Settings</Text>
+                {/* Budget Goals */}
+                <Text style={styles.sectionTitle}>Usage Goals</Text>
                 <GlassCard>
                     <View style={styles.settingRow}>
                         <View style={styles.settingLeft}>
                             <View style={[styles.iconBox, { backgroundColor: Colors.success + '20' }]}>
-                                <IndianRupee size={18} color={Colors.success} />
+                                <Zap size={18} color={Colors.success} />
                             </View>
                             <View>
-                                <Text style={styles.settingLabel}>Electricity Rate</Text>
-                                <Text style={styles.settingHint}>Cost per kWh in ₹</Text>
+                                <Text style={styles.settingLabel}>Monthly kWh Goal</Text>
+                                <Text style={styles.settingHint}>Set your target consumption</Text>
                             </View>
                         </View>
                         <View style={styles.rateInput}>
-                            <Text style={styles.ratePrefix}>₹</Text>
                             <TextInput
                                 style={styles.rateTextInput}
-                                value={electricityRate}
-                                onChangeText={setElectricityRate}
-                                keyboardType="decimal-pad"
-                                placeholder="8.0"
+                                placeholder="e.g. 200"
                                 placeholderTextColor={Colors.textMuted}
-                                onBlur={handleSaveRate}
+                                keyboardType="numeric"
+                                onChangeText={(val) => {
+                                    // Save budget when changed
+                                    if (val) {
+                                        fetch('http://192.168.29.191:8000/budget', {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                                'Authorization': 'Bearer demo-token-for-testing'
+                                            },
+                                            body: JSON.stringify({ monthly_kwh_goal: parseFloat(val) })
+                                        });
+                                    }
+                                }}
                             />
+                            <Text style={styles.ratePrefix}>kWh</Text>
                         </View>
                     </View>
                 </GlassCard>
@@ -232,7 +264,6 @@ export default function SettingsScreen() {
                             value={weeklyDigestEnabled}
                             onValueChange={handleToggleDigest}
                             trackColor={{ false: Colors.textMuted, true: Colors.primary + '80' }}
-                            thumbColor={weeklyDigestEnabled ? Colors.primary : '#f4f3f4'}
                         />
                     </View>
                 </GlassCard>

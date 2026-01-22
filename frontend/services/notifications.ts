@@ -26,41 +26,53 @@ export interface NotificationData {
 
 class NotificationService {
     private expoPushToken: string | null = null;
+    private isInitialized: boolean = false;
 
     /**
-     * Initialize notifications and get push token
+     * Initialize notifications (local notifications work in Expo Go)
+     * Push notifications require a development build
      */
     async initialize(): Promise<string | null> {
-        if (!Device.isDevice) {
-            console.log('Push notifications only work on physical devices');
-            return null;
+        if (this.isInitialized) {
+            return this.expoPushToken;
         }
 
-        // Request permissions
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-
-        if (existingStatus !== 'granted') {
-            const { status } = await Notifications.requestPermissionsAsync();
-            finalStatus = status;
-        }
-
-        if (finalStatus !== 'granted') {
-            console.log('Push notification permission denied');
-            return null;
-        }
-
-        // Get Expo push token
+        // Request permissions for local notifications
         try {
-            const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-            const token = await Notifications.getExpoPushTokenAsync({
-                projectId: projectId,
-            });
-            this.expoPushToken = token.data;
-            console.log('Push token:', this.expoPushToken);
+            const { status: existingStatus } = await Notifications.getPermissionsAsync();
+            let finalStatus = existingStatus;
+
+            if (existingStatus !== 'granted') {
+                const { status } = await Notifications.requestPermissionsAsync();
+                finalStatus = status;
+            }
+
+            if (finalStatus !== 'granted') {
+                console.log('Notification permission denied');
+                return null;
+            }
+
+            this.isInitialized = true;
+            console.log('Local notifications initialized');
+
+            // Only try to get push token on physical devices (will fail in Expo Go SDK 53+)
+            if (Device.isDevice) {
+                try {
+                    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+                    if (projectId) {
+                        const token = await Notifications.getExpoPushTokenAsync({ projectId });
+                        this.expoPushToken = token.data;
+                        console.log('Push token:', this.expoPushToken);
+                    }
+                } catch (error) {
+                    // Push tokens not available in Expo Go SDK 53+, but local notifications still work
+                    console.log('Push token not available (Expo Go limitation), local notifications work');
+                }
+            }
+
             return this.expoPushToken;
         } catch (error) {
-            console.log('Error getting push token:', error);
+            console.log('Notification init error:', error);
             return null;
         }
     }

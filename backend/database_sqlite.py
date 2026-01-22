@@ -115,6 +115,18 @@ class Database:
                 )
             """)
             
+            # User budgets table for usage goals
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_budgets (
+                    user_id TEXT PRIMARY KEY,
+                    monthly_kwh_goal REAL,
+                    monthly_cost_goal REAL,
+                    alert_threshold REAL DEFAULT 80.0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """)
+            
             # Create indexes for performance
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_appliances_user ON appliances(user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_readings_user ON readings(user_id)")
@@ -423,12 +435,14 @@ class Database:
 
     def predict_monthly_bill(self, user_id: str) -> Dict:
         """Predict monthly bill based on recent usage patterns."""
+        from slab_rates import calculate_monthly_bill, calculate_daily_cost
+        
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
-            # Get last 30 days of usage
+            # Get last 30 days of usage (only kWh, we'll recalculate cost)
             cursor.execute("""
-                SELECT AVG(consumption_kwh) as avg_daily, AVG(cost) as avg_cost
+                SELECT AVG(consumption_kwh) as avg_daily
                 FROM daily_usage 
                 WHERE user_id = ?
                 ORDER BY date DESC
@@ -437,33 +451,39 @@ class Database:
             
             result = cursor.fetchone()
             avg_daily = result["avg_daily"] or 0
-            avg_cost = result["avg_cost"] or 0
             
-            # Project to 30 days
+            # Project to 30 days and calculate cost using current slab rates
             predicted_kwh = round(avg_daily * 30, 2)
-            predicted_cost = round(avg_cost * 30, 2)
+            monthly_bill = calculate_monthly_bill(predicted_kwh)
+            predicted_cost = monthly_bill["total_amount"]
+            avg_daily_cost = calculate_daily_cost(avg_daily, predicted_kwh)
             
             # Get current month progress
             today = date.today()
             month_str = today.strftime("%Y-%m")
             
             cursor.execute("""
-                SELECT SUM(consumption_kwh) as current_kwh, SUM(cost) as current_cost
+                SELECT SUM(consumption_kwh) as current_kwh
                 FROM daily_usage 
                 WHERE user_id = ? AND date LIKE ?
             """, (user_id, f"{month_str}%"))
             
             current = cursor.fetchone()
+            current_kwh = current["current_kwh"] or 0
+            
+            # Recalculate current month cost using slab rates
+            current_month_bill = calculate_monthly_bill(current_kwh)
+            current_cost = current_month_bill["total_amount"]
             
             return {
                 "predicted_monthly_kwh": predicted_kwh,
                 "predicted_monthly_cost": predicted_cost,
                 "avg_daily_kwh": round(avg_daily, 2),
-                "avg_daily_cost": round(avg_cost, 2),
+                "avg_daily_cost": avg_daily_cost,
                 "current_month": {
                     "month": month_str,
-                    "kwh_so_far": round(current["current_kwh"] or 0, 2),
-                    "cost_so_far": round(current["current_cost"] or 0, 2),
+                    "kwh_so_far": round(current_kwh, 2),
+                    "cost_so_far": round(current_cost, 2),
                     "days_recorded": today.day
                 }
             }
@@ -575,16 +595,27 @@ class Database:
         if not cycle:
             return None
         
-        # Get latest reading
+        # Get all readings
         readings = self.get_readings(user_id)
         if not readings:
             return None
         
-        # Get the most recent reading value
-        latest_reading = max(
-            [r["reading_kwh"] for r in readings],
-            default=cycle["last_bill_reading"]
-        )
+        # Filter readings to only those AFTER the billing cycle start date
+        last_bill_date = cycle["last_bill_date"]
+        readings_after_cycle_start = [
+            r for r in readings 
+            if r["date"] >= last_bill_date
+        ]
+        
+        # Get the most recent reading value from filtered readings
+        if readings_after_cycle_start:
+            latest_reading = max(
+                [r["reading_kwh"] for r in readings_after_cycle_start],
+                default=cycle["last_bill_reading"]
+            )
+        else:
+            # No readings after cycle start, use the bill reading itself
+            latest_reading = cycle["last_bill_reading"]
         
         cycle_consumption = max(0, latest_reading - cycle["last_bill_reading"])
         
@@ -595,6 +626,71 @@ class Database:
             "cycle_consumption": round(cycle_consumption, 2),
             "billing_period_months": cycle.get("billing_period_months", 2)
         }
+
+    # ==================== USER BUDGETS ====================
+    
+    def save_budget(self, user_id: str, budget_data: Dict) -> bool:
+        """Save or update user budget/goals"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO user_budgets 
+                (user_id, monthly_kwh_goal, monthly_cost_goal, alert_threshold, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                user_id,
+                budget_data.get("monthly_kwh_goal"),
+                budget_data.get("monthly_cost_goal"),
+                budget_data.get("alert_threshold", 80.0)
+            ))
+            conn.commit()
+            return True
+
+    def get_budget(self, user_id: str) -> Optional[Dict]:
+        """Get user budget with progress calculation"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get budget settings
+            cursor.execute("""
+                SELECT monthly_kwh_goal, monthly_cost_goal, alert_threshold
+                FROM user_budgets WHERE user_id = ?
+            """, (user_id,))
+            
+            row = cursor.fetchone()
+            if not row:
+                return None
+            
+            budget = {
+                "monthly_kwh_goal": row["monthly_kwh_goal"],
+                "monthly_cost_goal": row["monthly_cost_goal"],
+                "alert_threshold": row["alert_threshold"]
+            }
+            
+            # Get current month usage for progress
+            today = date.today()
+            month_str = today.strftime("%Y-%m")
+            
+            cursor.execute("""
+                SELECT SUM(consumption_kwh) as current_kwh
+                FROM daily_usage 
+                WHERE user_id = ? AND date LIKE ?
+            """, (user_id, f"{month_str}%"))
+            
+            usage = cursor.fetchone()
+            current_kwh = usage["current_kwh"] or 0
+            
+            # Calculate progress percentages
+            kwh_progress = 0
+            if budget["monthly_kwh_goal"] and budget["monthly_kwh_goal"] > 0:
+                kwh_progress = round((current_kwh / budget["monthly_kwh_goal"]) * 100, 1)
+            
+            budget["current_kwh"] = round(current_kwh, 2)
+            budget["kwh_progress"] = kwh_progress
+            budget["is_over_budget"] = kwh_progress >= 100
+            budget["approaching_limit"] = kwh_progress >= budget["alert_threshold"]
+            
+            return budget
 
 
 # Global instance

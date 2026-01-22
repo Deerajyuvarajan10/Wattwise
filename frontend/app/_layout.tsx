@@ -1,10 +1,11 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Colors } from '../constants/Theme';
+import { ThemeProvider } from '../contexts/ThemeContext';
 
 export default function RootLayout() {
     return (
-        <>
+        <ThemeProvider>
             <StatusBar style="light" />
             <Stack
                 screenOptions={{
@@ -26,6 +27,6 @@ export default function RootLayout() {
                 <Stack.Screen name="readings-history" options={{ title: 'Readings History', headerShown: true }} />
                 <Stack.Screen name="import-bill" options={{ title: 'Import Last Bill', headerShown: true }} />
             </Stack>
-        </>
+        </ThemeProvider>
     );
 }

@@ -3,7 +3,10 @@
  * Monthly/Yearly analytics with charts and bill predictions
  */
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert, Linking, Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useStore } from '../../store/useStore';
 import { ScreenWrapper } from '../../components/ScreenWrapper';
 import { GlassCard } from '../../components/GlassCard';
@@ -38,6 +41,8 @@ export default function ReportsScreen() {
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
 
+    const [comparison, setComparison] = useState<any>(null);
+
     useEffect(() => {
         loadData();
     }, [currentMonth]);
@@ -47,6 +52,19 @@ export default function ReportsScreen() {
             fetchMonthlyReport(currentMonth),
             fetchBillPrediction(),
         ]);
+
+        // Fetch comparison data
+        try {
+            const res = await fetch('http://192.168.29.191:8000/reports/comparison', {
+                headers: { 'Authorization': 'Bearer demo-token-for-testing' }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setComparison(data);
+            }
+        } catch (err) {
+            console.log('Comparison fetch error:', err);
+        }
     };
 
     const navigateMonth = (direction: -1 | 1) => {
@@ -62,19 +80,44 @@ export default function ReportsScreen() {
     };
 
     const handleExport = async () => {
-        Alert.alert(
-            'Export Data',
-            'Choose export format',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Download CSV',
-                    onPress: () => {
-                        Alert.alert('Export', 'CSV export will download to your device. Check the /export/csv endpoint on your server.');
-                    }
-                },
-            ]
-        );
+        try {
+            console.log('Starting export...');
+            const headers = { Authorization: 'Bearer demo-token-for-testing' };
+            const API_URL = 'http://192.168.29.191:8000';
+
+            const response = await fetch(`${API_URL}/export/csv`, { headers });
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+            const csvData = await response.text();
+            console.log('CSV data received');
+
+            const fileName = `wattwise_report_${currentMonth}.csv`;
+
+            if (Platform.OS === 'web') {
+                const blob = new Blob([csvData], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                a.click();
+                window.URL.revokeObjectURL(url);
+                Alert.alert('Export Complete', 'Report downloaded!');
+            } else {
+                const fileUri = Paths.join(Paths.document.uri, fileName);
+                await FileSystem.writeAsStringAsync(fileUri, csvData, { encoding: 'utf8' });
+
+                const canShare = await Sharing.isAvailableAsync();
+                if (canShare) {
+                    await Sharing.shareAsync(fileUri);
+                } else {
+                    Alert.alert('Export Complete', `File saved to: ${fileUri}`);
+                }
+            }
+        } catch (error: any) {
+            console.error('Export error:', error);
+            Alert.alert('Export Error', error.message);
+        }
     };
 
     // Prepare chart data
@@ -201,6 +244,43 @@ export default function ReportsScreen() {
                                         ₹{billPrediction.current_month?.cost_so_far?.toFixed(0) || '0'}
                                     </Text>
                                 </View>
+                            </GlassCard>
+                        )}
+
+                        {/* Month Comparison */}
+                        {comparison && (
+                            <GlassCard style={styles.comparisonCard}>
+                                <Text style={styles.comparisonTitle}>This Month vs Last Month</Text>
+                                <View style={styles.comparisonRow}>
+                                    <View style={styles.comparisonItem}>
+                                        <Text style={styles.comparisonLabel}>Usage</Text>
+                                        <Text style={[
+                                            styles.comparisonChange,
+                                            { color: comparison.comparison.is_improved ? Colors.success : Colors.danger }
+                                        ]}>
+                                            {comparison.comparison.is_improved ? '↓' : '↑'} {Math.abs(comparison.comparison.kwh_change_percent)}%
+                                        </Text>
+                                        <Text style={styles.comparisonDetail}>
+                                            {comparison.current_month.total_kwh.toFixed(0)} vs {comparison.last_month.total_kwh.toFixed(0)} kWh
+                                        </Text>
+                                    </View>
+                                    <View style={styles.comparisonDivider} />
+                                    <View style={styles.comparisonItem}>
+                                        <Text style={styles.comparisonLabel}>Cost</Text>
+                                        <Text style={[
+                                            styles.comparisonChange,
+                                            { color: comparison.comparison.is_improved ? Colors.success : Colors.danger }
+                                        ]}>
+                                            {comparison.comparison.cost_change < 0 ? '↓' : '↑'} {Math.abs(comparison.comparison.cost_change_percent)}%
+                                        </Text>
+                                        <Text style={styles.comparisonDetail}>
+                                            ₹{comparison.current_month.total_cost.toFixed(0)} vs ₹{comparison.last_month.total_cost.toFixed(0)}
+                                        </Text>
+                                    </View>
+                                </View>
+                                {comparison.comparison.is_improved && (
+                                    <Text style={styles.improvementBadge}>🎉 Great job! You're using less electricity!</Text>
+                                )}
                             </GlassCard>
                         )}
 
@@ -344,5 +424,49 @@ const styles = StyleSheet.create({
         color: Colors.primary,
         fontSize: 14,
         fontWeight: '600',
+    },
+    comparisonCard: {
+        padding: Spacing.md,
+    },
+    comparisonTitle: {
+        ...Typography.h3,
+        marginBottom: Spacing.sm,
+    },
+    comparisonRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+    },
+    comparisonItem: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    comparisonLabel: {
+        color: Colors.textMuted,
+        fontSize: 12,
+        marginBottom: 4,
+    },
+    comparisonChange: {
+        fontSize: 24,
+        fontWeight: '700',
+    },
+    comparisonDetail: {
+        color: Colors.textSecondary,
+        fontSize: 11,
+        marginTop: 4,
+    },
+    comparisonDivider: {
+        width: 1,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        marginHorizontal: Spacing.sm,
+    },
+    improvementBadge: {
+        textAlign: 'center',
+        color: Colors.success,
+        fontSize: 13,
+        fontWeight: '500',
+        marginTop: Spacing.md,
+        backgroundColor: Colors.success + '15',
+        padding: Spacing.sm,
+        borderRadius: 8,
     },
 });

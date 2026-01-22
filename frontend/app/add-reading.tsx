@@ -7,10 +7,11 @@ import { NeonButton } from '../components/NeonButton';
 import { Colors, Spacing, Typography } from '../constants/Theme';
 import { Sun, Moon, Calendar, CheckCircle } from 'lucide-react-native';
 import { useStore } from '../store/useStore';
+import { notificationService } from '../services/notifications';
 
 export default function AddReadingScreen() {
     const router = useRouter();
-    const { addReading, readings } = useStore();
+    const { addReading, readings, settings } = useStore();
     const [morning, setMorning] = useState('');
     const [night, setNight] = useState('');
     const [loading, setLoading] = useState(false);
@@ -51,12 +52,22 @@ export default function AddReadingScreen() {
                 });
             }
 
+            let result: any = null;
             if (night && !existingNight) {
-                await addReading({
+                result = await addReading({
                     date: dateStr,
                     time_of_day: 'night',
                     reading_kwh: parseFloat(night)
                 });
+            }
+
+            // Check if anomaly was detected and send notification
+            if (result?.daily_usage?.is_anomaly && settings?.notifications_enabled) {
+                await notificationService.initialize();
+                await notificationService.sendAnomalyAlert(
+                    result.daily_usage.consumption_kwh,
+                    dateStr
+                );
             }
 
             Alert.alert('Success', 'Readings saved successfully!', [

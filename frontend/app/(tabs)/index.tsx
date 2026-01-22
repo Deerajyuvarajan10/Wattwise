@@ -21,6 +21,7 @@ import {
     DollarSign,
     Calendar
 } from 'lucide-react-native';
+import { notificationService } from '../../services/notifications';
 
 export default function Dashboard() {
     const router = useRouter();
@@ -41,7 +42,22 @@ export default function Dashboard() {
 
     useEffect(() => {
         loadData();
+        setupNotifications();
     }, []);
+
+    const setupNotifications = async () => {
+        try {
+            await notificationService.initialize();
+            // Schedule daily reminder at 8 PM if not already scheduled
+            const scheduled = await notificationService.getScheduledNotifications();
+            if (scheduled.length === 0) {
+                await notificationService.scheduleDailyReminder(20, 0); // 8 PM
+                console.log('Daily reminder scheduled for 8 PM');
+            }
+        } catch (error) {
+            console.log('Notification setup error:', error);
+        }
+    };
 
     const loadData = async () => {
         await Promise.all([
@@ -186,13 +202,39 @@ export default function Dashboard() {
                     variant="secondary"
                 />
 
-                {/* Billing Cycle Progress */}
                 {billingCycle?.has_cycle ? (
-                    <GlassCard style={styles.cycleCard}>
+                    <GlassCard style={[
+                        styles.cycleCard,
+                        billingCycle.cycle_ended && styles.cycleCardEnded,
+                        billingCycle.cycle_ending_soon && !billingCycle.cycle_ended && styles.cycleCardWarning
+                    ]}>
+                        {/* Cycle Ended Alert */}
+                        {billingCycle.cycle_ended && (
+                            <View style={styles.cycleAlert}>
+                                <Text style={styles.cycleAlertText}>
+                                    ⚠️ Billing cycle ended! Please update with your new bill.
+                                </Text>
+                            </View>
+                        )}
+
+                        {/* Cycle Ending Soon Alert */}
+                        {billingCycle.cycle_ending_soon && !billingCycle.cycle_ended && (
+                            <View style={styles.cycleWarning}>
+                                <Text style={styles.cycleWarningText}>
+                                    ⏰ Cycle ends in {billingCycle.days_remaining} days
+                                </Text>
+                            </View>
+                        )}
+
                         <View style={styles.cycleHeader}>
                             <Text style={styles.cycleTitle}>Billing Cycle Progress</Text>
                             <TouchableOpacity onPress={() => router.push('/import-bill')}>
-                                <Text style={styles.cycleUpdate}>Update</Text>
+                                <Text style={[
+                                    styles.cycleUpdate,
+                                    billingCycle.cycle_ended && { color: Colors.danger }
+                                ]}>
+                                    {billingCycle.cycle_ended ? 'Update Now' : 'Update'}
+                                </Text>
                             </TouchableOpacity>
                         </View>
 
@@ -214,7 +256,7 @@ export default function Dashboard() {
                         </View>
 
                         <Text style={styles.cycleDays}>
-                            Day {billingCycle.days_in_cycle} of ~60 • Ends ~{new Date(billingCycle.estimated_cycle_end || '').toLocaleDateString()}
+                            Day {billingCycle.days_in_cycle} of ~60 • {billingCycle.days_remaining} days left
                         </Text>
                     </GlassCard>
                 ) : (
@@ -548,6 +590,38 @@ const styles = StyleSheet.create({
         color: Colors.textSecondary,
         fontSize: 14,
         marginTop: Spacing.xs,
+    },
+    cycleCardEnded: {
+        borderColor: Colors.danger,
+        borderWidth: 1,
+    },
+    cycleCardWarning: {
+        borderColor: Colors.warning,
+        borderWidth: 1,
+    },
+    cycleAlert: {
+        backgroundColor: Colors.danger + '20',
+        padding: Spacing.sm,
+        borderRadius: 8,
+        marginBottom: Spacing.sm,
+    },
+    cycleAlertText: {
+        color: Colors.danger,
+        fontSize: 13,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    cycleWarning: {
+        backgroundColor: Colors.warning + '20',
+        padding: Spacing.sm,
+        borderRadius: 8,
+        marginBottom: Spacing.sm,
+    },
+    cycleWarningText: {
+        color: Colors.warning,
+        fontSize: 13,
+        fontWeight: '600',
+        textAlign: 'center',
     },
     bottomPadding: {
         height: 20,

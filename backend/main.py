@@ -314,6 +314,57 @@ def get_monthly_report(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
 
+@app.get("/reports/comparison")
+def get_usage_comparison(user: dict = Depends(get_current_user)):
+    """Get this month vs last month comparison."""
+    from datetime import date
+    user_id = user["userid"]
+    today = date.today()
+    
+    # Current month
+    current_year, current_month = today.year, today.month
+    current_report = db.get_monthly_report(user_id, current_year, current_month)
+    
+    # Last month
+    if current_month == 1:
+        last_year, last_month = current_year - 1, 12
+    else:
+        last_year, last_month = current_year, current_month - 1
+    last_report = db.get_monthly_report(user_id, last_year, last_month)
+    
+    # Calculate changes
+    current_kwh = current_report.get("stats", {}).get("total_kwh", 0) or 0
+    last_kwh = last_report.get("stats", {}).get("total_kwh", 0) or 0
+    current_cost = current_report.get("stats", {}).get("total_cost", 0) or 0
+    last_cost = last_report.get("stats", {}).get("total_cost", 0) or 0
+    
+    kwh_change = current_kwh - last_kwh
+    kwh_change_percent = round((kwh_change / last_kwh * 100), 1) if last_kwh > 0 else 0
+    cost_change = current_cost - last_cost
+    cost_change_percent = round((cost_change / last_cost * 100), 1) if last_cost > 0 else 0
+    
+    return {
+        "current_month": {
+            "month": f"{current_year}-{current_month:02d}",
+            "total_kwh": current_kwh,
+            "total_cost": current_cost,
+            "days_recorded": current_report.get("stats", {}).get("days_recorded", 0)
+        },
+        "last_month": {
+            "month": f"{last_year}-{last_month:02d}",
+            "total_kwh": last_kwh,
+            "total_cost": last_cost,
+            "days_recorded": last_report.get("stats", {}).get("days_recorded", 0)
+        },
+        "comparison": {
+            "kwh_change": round(kwh_change, 2),
+            "kwh_change_percent": kwh_change_percent,
+            "cost_change": round(cost_change, 2),
+            "cost_change_percent": cost_change_percent,
+            "is_improved": kwh_change < 0
+        }
+    }
+
 @app.get("/reports/yearly")
 def get_yearly_summary(
     year: int = Query(..., description="Year in YYYY format"),
@@ -638,6 +689,9 @@ def get_billing_cycle_status(user: dict = Depends(get_current_user)):
             "current_slab": slab_info["current_slab"],
             "current_rate": slab_info["current_rate"],
             "days_in_cycle": days_in_cycle,
+            "days_remaining": max(0, 60 - days_in_cycle),
+            "cycle_ending_soon": days_in_cycle >= 55,  # Alert when 5 days or less remaining
+            "cycle_ended": days_in_cycle >= 60,  # Cycle has ended, prompt to update
             "estimated_cycle_end": estimated_end.strftime("%Y-%m-%d"),
             "billing_period_months": cycle_info["billing_period_months"]
         }
@@ -650,3 +704,30 @@ def get_billing_cycle_status(user: dict = Depends(get_current_user)):
             "estimated_cycle_end": None
         }
 
+# ==================== BUDGET GOALS ====================
+
+class BudgetSettings(BaseModel):
+    monthly_kwh_goal: float = None
+    monthly_cost_goal: float = None
+    alert_threshold: float = 80.0
+
+@app.post("/budget")
+def save_budget(budget: BudgetSettings, user: dict = Depends(get_current_user)):
+    """Save user budget/goals"""
+    user_id = user["userid"]
+    db.save_budget(user_id, budget.dict())
+    return {"message": "Budget saved successfully"}
+
+@app.get("/budget")
+def get_budget(user: dict = Depends(get_current_user)):
+    """Get user budget with progress"""
+    user_id = user["userid"]
+    budget = db.get_budget(user_id)
+    
+    if not budget:
+        return {"has_budget": False, "message": "No budget set"}
+    
+    return {
+        "has_budget": True,
+        **budget
+    }

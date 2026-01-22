@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useRef } from 'react';
+import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Gradients, Spacing, Typography } from '../constants/Theme';
 
@@ -19,38 +19,59 @@ export const NeonButton: React.FC<NeonButtonProps> = ({
     variant = 'primary',
     style
 }) => {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
 
     let colors = Gradients.primaryMap;
     let textColor = Colors.background;
 
     if (variant === 'secondary') {
-        colors = [Colors.cardBg, Colors.cardBg]; // Solid-ish
+        colors = [Colors.cardBg, Colors.cardBg];
         textColor = Colors.textPrimary;
     } else if (variant === 'danger') {
         colors = Gradients.alertMap;
         textColor = '#fff';
     }
 
+    const handlePressIn = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 0.95,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    const handlePressOut = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            friction: 3,
+            tension: 100,
+            useNativeDriver: true,
+        }).start();
+    };
+
     return (
-        <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={onPress}
-            disabled={loading}
-            style={[styles.wrapper, style]}
-        >
-            <LinearGradient
-                colors={colors as any}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.gradient}
+        <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, style]}>
+            <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={onPress}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                disabled={loading}
+                style={styles.wrapper}
             >
-                {loading ? (
-                    <ActivityIndicator color={textColor} />
-                ) : (
-                    <Text style={[styles.text, { color: textColor }]}>{title}</Text>
-                )}
-            </LinearGradient>
-        </TouchableOpacity>
+                <LinearGradient
+                    colors={colors as any}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.gradient}
+                >
+                    {loading ? (
+                        <ActivityIndicator color={textColor} />
+                    ) : (
+                        <Text style={[styles.text, { color: textColor }]}>{title}</Text>
+                    )}
+                </LinearGradient>
+            </TouchableOpacity>
+        </Animated.View>
     );
 };
 
